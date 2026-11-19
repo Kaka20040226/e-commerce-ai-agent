@@ -1,5 +1,12 @@
 # E-commerce AI Agent · 电商多 Agent 推荐
 
+## 原始 Python 版本
+
+[`python/`](python/) 完整保留上游 Python 版本的目录结构、源码、配置示例和测试。上游 README 标注 MIT 许可证。 [上游仓库](https://github.com/bcefghj/multi-agent-ecommerce-system) · [导入的上游提交 `faf0fd8`](https://github.com/bcefghj/multi-agent-ecommerce-system/tree/faf0fd8309c550426f3b2cce057dd4566e209e09/python)
+
+## 交互原型
+
+
 Commerce Agent Lab 是一个可交互的推荐实验台。选定用户画像和库存场景后，页面展示候选召回、预算与库存约束、排序结果，以及面向首推商品的营销短句。
 
 [查看演示文件](docs/index.html)，可下载后直接在浏览器打开。
