@@ -1,0 +1,11 @@
+{
+  "source_url": "https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store",
+  "source_file": "2019-Oct.csv",
+  "stop_before_utc_date": "2019-10-09",
+  "first_event_utc": "2019-10-01 00:00:16",
+  "last_event_utc": "2019-10-08 23:59:59",
+  "user_sample": "CRC32 of the decimal user ID modulo 10 is less than 2",
+  "source_events_scanned": 10199948,
+  "sample_events": 2034719,
+  "uncompressed_sample_sha256": "1cfd149ac204aaa8e6e9773c39b97849d27fb978fe99cc0a115f69d1719fb05f"
+}

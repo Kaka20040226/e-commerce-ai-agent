@@ -1,0 +1,11 @@
+.env
+.venv/
+.venv-*/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.db
+validation/data/*
+!validation/data/sample_rees46.py
+validation/runs/
+*-llm-cases.jsonl

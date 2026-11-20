@@ -1,0 +1,63 @@
+{
+  "model": "llama3.2:latest",
+  "model_digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
+  "runner": "local Ollama via upstream ProductRecAgent._rerank and fixed ItemCF candidate list",
+  "options": {
+    "seed": 114,
+    "temperature": 0.3,
+    "num_predict": 512,
+    "num_ctx": 4096
+  },
+  "input_sha256": "6838bd4b6dc11507e937e0e86e372b3b9277a24a79293e7f1442178cc63ad2f6",
+  "policy": "Select the top 10 from fixed candidates. Keep original ItemCF order on invalid response or runtime error.",
+  "paid_api_calls": 0,
+  "users": 48,
+  "metrics": {
+    "recall_at_10": {
+      "itemcf": 0.15833333333333333,
+      "llm_rerank": 0.18194444444444444,
+      "delta": 0.02361111111111111,
+      "paired_user_bootstrap_95_ci": [
+        -0.06947916666666668,
+        0.11805555555555557
+      ]
+    },
+    "ndcg_at_10": {
+      "itemcf": 0.0775353325761346,
+      "llm_rerank": 0.08810610060848979,
+      "delta": 0.010570768032355205,
+      "paired_user_bootstrap_95_ci": [
+        -0.036202921130382495,
+        0.052107491705886605
+      ]
+    },
+    "hit_rate_at_10": {
+      "itemcf": 0.1875,
+      "llm_rerank": 0.22916666666666666,
+      "delta": 0.041666666666666664,
+      "paired_user_bootstrap_95_ci": [
+        -0.0625,
+        0.14583333333333334
+      ]
+    }
+  },
+  "same_candidate_mean_purchase_recall_ceiling": 0.2881944444444444,
+  "candidate_count_range": [
+    20,
+    20
+  ],
+  "response_status_counts": {
+    "unknown_ids": 5,
+    "valid": 36,
+    "duplicate_ids": 7
+  },
+  "baseline_fallback_count": 12,
+  "changed_top_10_count": 34,
+  "wall_latency_ms_p50_p95": [
+    4670.835542026907,
+    5328.561110864393
+  ],
+  "first_call_wall_latency_ms": 5329.637083923444,
+  "mean_prompt_tokens": 1125.0208333333333,
+  "mean_completion_tokens": 67.375
+}

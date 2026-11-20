@@ -1,156 +1,74 @@
-# 系统架构设计文档
+# E-commerce AI Agent
 
-## 1. 系统总览
+一个基于 FastAPI 的电商多 Agent 推荐演示。Supervisor 协调用户画像、商品推荐、库存决策和营销文案四个 Agent，也提供 LangGraph 入口。仓库包含原始 Python 演示，以及用 Kaggle 真实行为日志评估离线排序、用可控模型响应验证 Agent 协作的实验代码。
 
-本系统采用 **Supervisor + 4 Agent 并行聚合** 架构,实现电商场景下的个性化推荐全链路。
+## 仓库结构
 
-```
-用户请求
-    │
-    ▼
-┌──────────────────────────────────────────────────────┐
-│                  Supervisor 协调Agent                  │
-│                                                       │
-│  Phase 1 (并行):                                      │
-│  ┌─────────────────┐  ┌─────────────────┐            │
-│  │ 用户画像Agent    │  │ 商品召回Agent    │            │
-│  │ Redis特征查询    │  │ 多路召回+去重    │            │
-│  └────────┬────────┘  └────────┬────────┘            │
-│           │                    │                      │
-│  Phase 2 (并行):               ▼                      │
-│  ┌─────────────────┐  ┌─────────────────┐            │
-│  │ LLM重排Agent    │  │ 库存决策Agent    │            │
-│  │ 画像x商品交叉   │  │ 库存校验+限购   │            │
-│  └────────┬────────┘  └────────┬────────┘            │
-│           │                    │                      │
-│           └──────────┬─────────┘                      │
-│                      ▼                                │
-│  Phase 3 (串行):                                      │
-│  ┌─────────────────────────────────┐                  │
-│  │ 结果聚合: 库存过滤 + 排序合并    │                  │
-│  └────────────────┬────────────────┘                  │
-│                   ▼                                   │
-│  ┌─────────────────────────────────┐                  │
-│  │ 营销文案Agent: 个性化文案生成    │                  │
-│  └────────────────┬────────────────┘                  │
-│                   ▼                                   │
-│  ┌─────────────────────────────────┐                  │
-│  │ A/B测试引擎: 实验分组 + 指标     │                  │
-│  └────────────────┬────────────────┘                  │
-└───────────────────┼──────────────────────────────────┘
-                    ▼
-              个性化响应
+| 目录 | 内容 |
+| --- | --- |
+| [`demo/`](demo/) | FastAPI 应用、四个 Agent、Supervisor、LangGraph 和原有 A/B 单测 |
+| [`validation/`](validation/) | Kaggle 时间切分、排序指标、LLM 重排对照、集成测试与汇总结果 |
+| [`docs/architecture.md`](docs/architecture.md) | 原有架构设计文档，包含外部服务接入和生产化设想 |
+
+当前演示使用内置商品和模拟库存。商品召回、画像特征和库存查询预留了 Milvus、Redis 与数据库接入点。以下离线基线在独立评估脚本中运行。
+
+## 启动演示
+
+在仓库根目录执行以下命令。原演示 Dockerfile 使用 Python 3.12，验证实验使用 Python 3.13。
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r demo/requirements.txt
+cd demo
+cp .env.example .env
 ```
 
-## 2. Agent职责矩阵
+在 `.env` 中填写你的 OpenAI 兼容服务地址、模型和密钥，对应 `ECOM_LLM_BASE_URL`、`ECOM_LLM_MODEL` 和 `ECOM_LLM_API_KEY`。然后启动应用。
 
-| Agent | 核心职责 | 输入 | 输出 | 工具/数据源 | 超时 |
-|-------|---------|------|------|-----------|------|
-| 用户画像 | 实时特征+RFM+分群 | user_id | UserProfile | Redis Feature Store | 5s |
-| 商品推荐 | 多路召回+LLM重排 | UserProfile, num_items | Product[] | Milvus, LLM | 8s |
-| 营销文案 | 模板选择+LLM生成+合规 | UserProfile, Product[] | Copy[] | LLM | 10s |
-| 库存决策 | 库存校验+预警+限购 | Product[] | available_ids, alerts | MySQL/WMS | 5s |
-
-## 3. 数据流
-
-```
-Redis (Feature Store)          Milvus (向量库)         MySQL (业务数据)
-       │                            │                       │
-       ▼                            ▼                       ▼
-  用户画像Agent              商品推荐Agent              库存决策Agent
-       │                            │                       │
-       └──────────┬─────────────────┘                       │
-                  ▼                                         │
-            结果聚合器 ◄────────────────────────────────────┘
-                  │
-                  ▼
-            营销文案Agent → LLM (MiniMax M2.7)
-                  │
-                  ▼
-            A/B测试引擎
-                  │
-                  ▼
-             API Response
+```bash
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-## 4. 并行策略分析
+打开 [Swagger UI](http://127.0.0.1:8000/docs)，或调用 Supervisor 推荐入口。
 
-### 延迟对比
-
-```
-串行模式: 5s + 8s + 5s + 10s = 28s (不可接受)
-
-并行模式:
-  Phase 1: max(5s, 8s) = 8s    (画像 || 召回)
-  Phase 2: max(8s, 5s) = 8s    (重排 || 库存)
-  Phase 3: 10s                   (文案, 依赖前两步)
-  合计: ≈ 8s + 8s + 10s = 26s  (仍然太慢, 因为LLM每次不需要这么久)
-  
-  实际: LLM平均响应~1-2s
-  实际总延迟: ≈ 2s + 2s + 2s = 6s (P99 < 8s)
+```bash
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS -X POST http://127.0.0.1:8000/api/v1/recommend \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"demo-user","num_items":3}'
 ```
 
-### 依赖关系
+LangGraph 入口为 `POST /api/v1/recommend/graph`。`GET /api/v1/experiments` 和 `GET /api/v1/metrics` 分别返回实验配置与监控统计。
 
-- Phase 1: 画像和召回互不依赖 → 并行
-- Phase 2: 重排需要画像(Phase 1) 但不需要库存 → 重排和库存并行
-- Phase 3: 文案需要最终商品列表(Phase 2) → 串行
+## 验证结果
 
-## 5. 稳定性设计
+### 离线推荐
 
-### 5.1 重试策略
-- 指数退避: 500ms → 1000ms → 2000ms
-- 最大重试: 2次(避免雪崩)
-- 幂等性: 所有Agent操作都是幂等的
+从 REES46 多品类电商日志按用户稳定采样，获得 2019 年 10 月 1–8 日的 **2,034,719 条事件**。最终用 10 月 1–6 日的历史，预测 7–8 日的购买。指标按 3,152 名有历史行为的买家宏平均。 [Kaggle 数据集](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store)
 
-### 5.2 降级策略
-| Agent | 降级方案 |
-|-------|---------|
-| 用户画像 | 返回默认画像(active用户) |
-| 商品推荐 | 返回热销商品列表 |
-| 营销文案 | 返回通用模板文案 |
-| 库存决策 | 标记所有商品为可用 |
+| 方法 | Recall@10 | NDCG@10 | Hit Rate@10 | Recall@100 |
+| --- | ---: | ---: | ---: | ---: |
+| 热门推荐 | 14.93% | 0.0848 | 17.77% | 37.27% |
+| 最近交互 | 44.38% | 0.3323 | 49.24% | 61.16% |
+| ItemCF | 20.24% | 0.1096 | 23.92% | 49.39% |
+| ItemCF + 类目重排 | 20.23% | 0.1096 | 23.95% | 49.39% |
 
-### 5.3 熔断规则
-- 窗口: 最近10次调用
-- 阈值: 错误率 > 50%
-- 恢复: 30s后半开状态,成功1次则恢复
+ItemCF 相对热门推荐的 NDCG@10 增量为 **0.0248**，配对用户 Bootstrap 的 95% CI 为 **[0.0142, 0.0349]**。在用户历史中未接触过的目录内商品上，ItemCF 的 NDCG@10 为 **0.0930**，在四组方案中最高。
 
-## 6. A/B测试架构
+同一留出窗口另外抽取 48 名买家，每人固定 20 个 ItemCF 候选，使用原重排提示和本地 Llama 3.2 排序。NDCG@10 从 0.0775 升至 0.0881，配对增量的 95% CI 为 [−0.0362, 0.0521]。12 次无效结果回退到 ItemCF，重排延迟 P95 为 5.33 秒。
 
-```
-用户请求
-    │
-    ▼
-┌─────────────────────────────┐
-│  流量分桶 (MD5 hash % 100)  │
-├─────────────────────────────┤
-│ bucket 0-49  │ bucket 50-99 │
-│   control    │  treatment   │
-├──────────────┼──────────────┤
-│ 规则重排      │ LLM重排      │
-│ 通用文案      │ 个性化文案    │
-└──────────────┴──────────────┘
-        │               │
-        ▼               ▼
-   指标收集(CTR/CVR/GMV)
-        │
-        ▼
-  Thompson Sampling
-  动态调整流量比例
-```
+### Agent 集成
 
-## 7. 扩展设计
+在模型调用边界注入可控响应，实际运行两个 FastAPI 推荐入口、编排器和 Agent。带 Kaggle 商品样本的完整测试报告为 **19 条断言通过**，其中 9 条用于复现缺陷。核心发现如下。
 
-### 可扩展点
-1. **新Agent**: 只需实现BaseAgent接口,注册到Supervisor
-2. **新实验**: ABTestEngine.register_experiment()
-3. **新召回策略**: 在ProductRecAgent._recall()中添加
-4. **新文案模板**: 在PROMPT_TEMPLATES字典中添加
+- 全缺货回退仍会返回零库存商品。重排再次召回也可能引入未经库存检查的商品。
+- 重复商品 ID、目录外文案商品 ID 和错误价格可进入响应。
+- 模型抛出超时后会重试。Agent 配置的超时阈值没有约束实际等待。
+- Control 与 Treatment 的标签不同，两组调用了相同的重排策略。
 
-### 生产化路线
-1. Redis Cluster → 支持百万级用户特征
-2. Milvus分布式 → 支持亿级商品向量
-3. Kubernetes → Agent独立Pod,自动扩缩容
-4. Kafka → 行为事件异步处理
-5. Prometheus + Grafana → 实时监控面板
+查看 [验证复现指南](validation/README.md) 和 [汇总指标](validation/results/)。
+
+## 来源
+
+`demo/` 来自 bcefghj 的 Multi-Agent 电商项目，迁移时保留了原文件内容。上游 README 声明采用 MIT 许可证。 [上游 Python 实现](https://github.com/bcefghj/multi-agent-ecommerce-system/tree/faf0fd8309c550426f3b2cce057dd4566e209e09/python) · [上游许可证声明](https://github.com/bcefghj/multi-agent-ecommerce-system#-license)
