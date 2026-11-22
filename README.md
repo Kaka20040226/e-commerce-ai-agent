@@ -1,6 +1,6 @@
 <div align="center">
 
-# E-commerce AI Agent
+# E-commerce Multi-Agent System
 
 ### 电商多 Agent 推荐与验证系统
 
